@@ -6,25 +6,15 @@ import time
 from SPARQLWrapper import SPARQLWrapper, JSON
 
 def search_book_info_from_google(author_name, book_title):
-    # Construisez l'URL de l'API de Google Books
     url = "https://www.googleapis.com/books/v1/volumes?q=intitle:{}+inauthor:{}".format(book_title, author_name)
-
-    # Envoyer une requête HTTP GET à l'API de Google Books
     response = requests.get(url)
-
-    # Vérifiez que la requête a réussi
     while response.status_code != 200:
-        # Attendre une duree aleatoire
         time.sleep(1)
         response = requests.get(url)
-
-    # Analysez la réponse JSON
     data = json.loads(response.text)
-
-    # Vérifiez si data contient "items"
     if len(data.get("items", [])) == 0:
         return None
-        
+       
     result = data["items"][0]["volumeInfo"]
     for item in data["items"]:
         if result["publishedDate"] > item["volumeInfo"]["publishedDate"]:
