@@ -23,7 +23,6 @@ def search_book_info_from_google(author_name, book_title):
     return result
 
 def search_book_info_from_data(author_name,book_title):
-    # Query to find the Wikidata ID of the author
     query = """
     PREFIX rdarelationships: <http://rdvocab.info/RDARelationshipsWEMI/>
     PREFIX foaf: <http://xmlns.com/foaf/0.1/>
