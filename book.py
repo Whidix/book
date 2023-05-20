@@ -7,7 +7,7 @@ from SPARQLWrapper import SPARQLWrapper, JSON
 
 def search_book_info_from_google(author_name, book_title):
     # Construisez l'URL de l'API de Google Books
-    url = "https://www.googleapis.com/books/v1/volumes?q=intitle:{}+inauthor:{}&maxResults=1".format(book_title, author_name)
+    url = "https://www.googleapis.com/books/v1/volumes?q=intitle:{}+inauthor:{}".format(book_title, author_name)
 
     # Envoyer une requête HTTP GET à l'API de Google Books
     response = requests.get(url)
@@ -24,23 +24,30 @@ def search_book_info_from_google(author_name, book_title):
     # Vérifiez si data contient "items"
     if len(data.get("items", [])) == 0:
         return None
-    # Obtenez les informations de la première édition
-    return data["items"][0]["volumeInfo"]
+        
+    result = data["items"][0]["volumeInfo"]
+    for item in data["items"]:
+        if result["publishedDate"] > item["volumeInfo"]["publishedDate"]:
+            result = item["volumeInfo"]
+    print(f"Le livre {book_title} de {author_name} a été trouvé via google.")
+    return result
 
 def search_book_info_from_data(author_name,book_title):
     # Query to find the Wikidata ID of the author
     query = """
-    PREFIX dcterms: <http://purl.org/dc/terms/>
+    PREFIX rdarelationships: <http://rdvocab.info/RDARelationshipsWEMI/>
     PREFIX foaf: <http://xmlns.com/foaf/0.1/>
-
-    SELECT ?person ?name ?title ?date
+    SELECT ?title ?name ?date ?publisher
     WHERE {
     ?person foaf:name ?name .
-    ?work dcterms:creator ?person .
-    ?work dcterms:title ?title .
-    ?work dcterms:date ?date .
+    ?oeuvre dcterms:creator ?person .
+    ?person foaf:name ?name .
+    ?oeuvre dcterms:title ?title .
+    ?oeuvre dcterms:date ?date .
+    ?edition rdarelationships:workManifested ?oeuvre .
+    ?edition dcterms:publisher ?publisher
     FILTER regex(?name, "%s", "i")
-    FILTER regex(?title, "%s", "i")
+    FILTER regex(?title, "%s")
     }
     """ % (author_name, book_title)
 
@@ -48,15 +55,19 @@ def search_book_info_from_data(author_name,book_title):
     sparql = SPARQLWrapper("https://data.bnf.fr/sparql")
     sparql.setQuery(query)
     sparql.setReturnFormat(JSON)
-    results = sparql.query().convert()
+    data = sparql.query().convert()
 
     # Return None if no results
-    if len(results["results"]["bindings"]) == 0:
+    if len(data["results"]["bindings"]) == 0:
         return None
 
     # Return the first edition (date)
-    for result in results["results"]["bindings"]:
-        # Compare the year
+    result = data["results"]["bindings"][0]
+    for item in data["results"]["bindings"]:
+        if result["date"]["value"] > item["date"]["value"]:
+            result = item
+    print(f"Le livre {book_title} de {author_name} a été trouvé via bnf.")
+    return result
 
 if __name__ == "__main__":
     csv_file = sys.argv[1]
@@ -72,33 +83,38 @@ if __name__ == "__main__":
             book_title = row[1]
             book_title = book_title.strip()
             livres.append((author_name, book_title))
-            result = search_book_info_from_data(author_name, book_title)
+            try:
+                result = search_book_info_from_data(author_name, book_title)
+            except:
+                print(f"Une erreur est survenue lors de la recherche du livre {book_title} de {author_name} via bnf.")
             if result is not None:
                 info = {
                     "title": result["title"]["value"],
                     "authors": result["name"]["value"],
-                    "publishedDate": result["date"]["value"]
+                    "publishedDate": result["date"]["value"],
+                    "edition": result["publisher"]["value"]
                 }
             else:
-                info = search_book_info_from_google(author_name, book_title)
-                if info is None:
-                    print(f"Le livre {book_title} de {author_name} n'a pas été trouvé.")
+                try:
+                    info = search_book_info_from_google(author_name, book_title)
+                    if info is None:
+                        print(f"Le livre {book_title} de {author_name} n'a pas été trouvé.")
+                        continue
+                except:
+                    print(f"Une erreur est survenue lors de la recherche du livre {book_title} de {author_name} via google.")
                     continue
-            print(f"Le livre {book_title} de {author_name} a été trouvé.")
             results.append(info)
 
     with open('livres.csv', 'w') as outfile:
         writer = csv.writer(outfile, delimiter=';', quotechar="'")
         # Write the header row
         writer.writerow([
+            "authors",
             "title",
             "subtitle",
-            "authors",
             "publishedDate",
-            "description",
-            "pageCount",
-            "categories",
-            "industryIdentifiers"
+            "edition"
+            "pageCount"
         ])
         for result in results:
             # Save the book info in a CSV file
@@ -106,14 +122,12 @@ if __name__ == "__main__":
             # so we use the get() method to avoid
             # an exception
             writer.writerow([
+                result.get("authors", ""),
                 result.get("title", ""),
                 result.get("subtitle", ""),
-                ",".join(result.get("authors", [])),
                 result.get("publishedDate", ""),
-                result.get("description", ""),
-                result.get("pageCount", ""),
-                ",".join(result.get("categories", [])),
-                result.get("industryIdentifiers", "")
+                result.get("edition", ""),
+                result.get("pageCount", "")
             ])
 
     # Print percentage of books found
